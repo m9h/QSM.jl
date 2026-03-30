@@ -1,5 +1,8 @@
 module QSM
 
+# Polyester.jl's @batch uses cfunction closures which are unsupported on
+# ARM64 in Julia ≥1.12. Detect at compile time and provide a fallback.
+const _USE_POLYESTER = !(Sys.ARCH === :aarch64 && VERSION >= v"1.12")
 
 using Base: @propagate_inbounds, require_one_based_indexing
 using Base.Threads: nthreads
@@ -11,17 +14,37 @@ using IrrationalConstants: inv2π, twoπ
 using LinearMaps: LinearMap
 using MacroTools: @capture, postwalk
 using NIfTI: NIVolume, niread, niwrite
-using PolyesterWeave: reset_workers!
+@static if _USE_POLYESTER
+    using PolyesterWeave: reset_workers!
+end
 using Printf: @printf
 using SLEEFPirates: pow, sincos_fast
 using Static: known
 using StaticArrays: SVector
-using ThreadingUtilities: initialize_task
+@static if _USE_POLYESTER
+    using ThreadingUtilities: initialize_task
+end
 using TiledIteration: TileIterator, padded_tilesize
 
 using LinearAlgebra
 using FFTW
-using Polyester
+
+@static if _USE_POLYESTER
+    using Polyester
+else
+    @warn "Polyester @batch disabled (ARM64 + Julia ≥1.12 cfunction limitation), using Threads.@threads fallback"
+    macro batch(args...)
+        loop = args[end]
+        has_threadlocal = any(args[1:end-1]) do a
+            a isa Expr && a.head == :(=) && a.args[1] == :threadlocal
+        end
+        if has_threadlocal
+            return esc(loop)
+        else
+            return esc(:(Threads.@threads $loop))
+        end
+    end
+end
 
 
 export bet
@@ -61,9 +84,11 @@ end
 function reset_threading()
     # if @batch loop gets interrupted, threading has to be reset:
     # https://github.com/JuliaSIMD/Polyester.jl/issues/30
-    nt = min(nthreads(), (Sys.CPU_THREADS)::Int) - 1
-    reset_workers!()
-    foreach(initialize_task, 1:nt)
+    if _POLYESTER_OK
+        nt = min(nthreads(), (Sys.CPU_THREADS)::Int) - 1
+        reset_workers!()
+        foreach(initialize_task, 1:nt)
+    end
     return nothing
 end
 

@@ -642,7 +642,11 @@ function _bfor(ex)
         end
     )
 
-    Polyester.enclose(loop, 0, 1, :core, (Symbol(""), :Any), Polyester)
+    if _USE_POLYESTER
+        Polyester.enclose(loop, 0, 1, :core, (Symbol(""), :Any), Polyester)
+    else
+        esc(:(Threads.@threads $loop))
+    end
 end
 
 
