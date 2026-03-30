@@ -35,11 +35,26 @@ else
     @warn "Polyester @batch disabled (ARM64 + Julia ≥1.12 cfunction limitation), using Threads.@threads fallback"
     macro batch(args...)
         loop = args[end]
-        has_threadlocal = any(args[1:end-1]) do a
-            a isa Expr && a.head == :(=) && a.args[1] == :threadlocal
+        # Find threadlocal=init::T keyword — extract the init expression
+        tl_init = nothing
+        for a in args[1:end-1]
+            if a isa Expr && a.head == :(=) && a.args[1] == :threadlocal
+                # a.args[2] is either `init::T` or just `init`
+                init_expr = a.args[2]
+                if init_expr isa Expr && init_expr.head == :(::)
+                    tl_init = init_expr.args[1]  # the init value, drop type assert
+                else
+                    tl_init = init_expr
+                end
+            end
         end
-        if has_threadlocal
-            return esc(loop)
+        if tl_init !== nothing
+            # Run serially with threadlocal as a regular local variable
+            return esc(quote
+                let threadlocal = $tl_init
+                    $loop
+                end
+            end)
         else
             return esc(:(Threads.@threads $loop))
         end
