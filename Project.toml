@@ -25,7 +25,7 @@ TiledIteration = "06e1c1a7-607b-532d-9fad-de7d9aa2abac"
 [compat]
 CPUSummary = "0.2.2"
 DSP = "0.7.8"
-FFTW = "1.6 - 1.8"
+FFTW = "1.6 - 1.10"
 FastPow = "0.1.0"
 IrrationalConstants = "0.2.2"
 LinearMaps = "3.6.1"

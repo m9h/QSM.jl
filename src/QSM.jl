@@ -106,15 +106,35 @@ const FFTW_NTHREADS = Ref{Int}(known(num_cores()))
             cspawnloop = C_NULL
         end
 
-        ccall(
-            (:fftw_threads_set_callback,  FFTW.libfftw3[]),
-            Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}), cspawnloop, C_NULL
-        )
+        # FFTW.jl ≥1.10 (Julia 1.12+) wraps library handles in
+        # FakeLazyLibrary whose .h field is populated lazily on first
+        # FFT call. Trigger both Float64 and Float32 library loading,
+        # then resolve the threading callback via dlsym.
+        function _fftw_handle(lib)
+            if hasproperty(lib, :h)
+                return lib.h
+            else
+                return lib[]
+            end
+        end
 
-        ccall(
-            (:fftwf_threads_set_callback, FFTW.libfftw3f[]),
-            Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}), cspawnloop, C_NULL
-        )
+        # Ensure both double and single precision libraries are loaded
+        h3  = _fftw_handle(FFTW.libfftw3)
+        if h3 == C_NULL
+            fft(Float64[1.0])  # trigger double-precision library load
+            h3 = _fftw_handle(FFTW.libfftw3)
+        end
+        h3f = _fftw_handle(FFTW.libfftw3f)
+        if h3f == C_NULL
+            fft(Float32[1.0f0])  # trigger single-precision library load
+            h3f = _fftw_handle(FFTW.libfftw3f)
+        end
+
+        fptr3  = ccall(:dlsym, Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), h3,  "fftw_threads_set_callback")
+        fptr3f = ccall(:dlsym, Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), h3f, "fftwf_threads_set_callback")
+
+        ccall(fptr3,  Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}), cspawnloop, C_NULL)
+        ccall(fptr3f, Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}), cspawnloop, C_NULL)
 
         return nothing
     end
