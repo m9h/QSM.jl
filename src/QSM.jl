@@ -49,11 +49,14 @@ else
             end
         end
         if tl_init !== nothing
-            # Run serially with threadlocal as a regular local variable
+            # Run serially with threadlocal as a regular local variable.
+            # Polyester returns threadlocal as a Vector (one element per thread);
+            # post-loop code may assert `threadlocal::Vector{T}`, so wrap in a
+            # 1-element vector to match the expected type.
             return esc(quote
-                let threadlocal = $tl_init
-                    $loop
-                end
+                local threadlocal = $tl_init
+                $loop
+                threadlocal = [threadlocal]
             end)
         else
             return esc(:(Threads.@threads $loop))
